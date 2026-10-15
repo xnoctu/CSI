@@ -13,10 +13,16 @@ service cloud.firestore {
       allow create, delete: if isManager();
     }
 
+    // Must match TEAMS in index.html. A salesperson may also have no team yet.
+    function validTeam() {
+      return !('team' in request.resource.data) || request.resource.data.team in ['A', 'B', 'C', 'Service'];
+    }
+
     // Salespeople: everyone signed in can see them. Only managers change them.
     match /data/team/people/{personId} {
       allow read: if isStaff();
-      allow write: if isManager();
+      allow create, update: if isManager() && validTeam();
+      allow delete: if isManager();
     }
 
     // Everything else is locked.
