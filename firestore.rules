@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Must match managerEmail / salesEmail in config.js
+    function isManager() { return request.auth != null && request.auth.token.email == 'manager@csi-app.com'; }
+    function isSales()   { return request.auth != null && request.auth.token.email == 'sales@csi-app.com'; }
+    function isStaff()   { return isManager() || isSales(); }
+
+    // Deals: everyone signed in can see and update them. Only managers add or delete deals.
+    match /deals/{dealId} {
+      allow read, update: if isStaff();
+      allow create, delete: if isManager();
+    }
+
+    // Salespeople: everyone signed in can see them. Only managers change them.
+    match /data/team/people/{personId} {
+      allow read: if isStaff();
+      allow write: if isManager();
+    }
+
+    // Everything else is locked.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
