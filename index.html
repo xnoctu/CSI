@@ -350,7 +350,6 @@ svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .cust .avatar{width:40px;height:40px;font-size:14px}
 .cust .who2{flex:1;min-width:0}
 .cust b{display:block;font-size:15.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cust .phone{font-family:var(--mono);font-size:13.5px;color:var(--fg-2);user-select:all;-webkit-user-select:all}
 .two-col{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
 @media (max-width:420px){.two-col{grid-template-columns:minmax(0,1fr)}}
 .ai{border-radius:16px;padding:14px;margin-bottom:16px;background:linear-gradient(135deg,var(--accent-soft),transparent 70%),var(--bg);border:1px solid color-mix(in srgb,var(--accent) 22%,transparent)}
@@ -529,7 +528,7 @@ svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-widt
       return {
         id: r.id, path,
         get: () => wrapErr(r.get().then(wrapDoc)),
-        set: v => wrapErr(r.set(v)),
+        set: (v, o) => wrapErr(o ? r.set(v, o) : r.set(v)),
         update: v => wrapErr(r.update(v)),
         delete: () => wrapErr(r.delete()),
         onSnapshot: (next, onError) => r.onSnapshot(s => next(wrapDoc(s)), e => onError && onError(err(e)))
@@ -593,15 +592,6 @@ const fmtDateTime = t => t ? new Date(t).toLocaleString(undefined, { month: "sho
 const plural = (n, w, pl) => `${n} ${n === 1 ? w : (pl || w + "s")}`;
 const initials = n => (n || "?").trim().split(/\s+/).slice(0, 2).map(p => p[0]).join("").toUpperCase();
 const digits = s => String(s || "").replace(/\D/g, "");
-// Deals whose customer has no usable email are burned: Kia can't send them the survey.
-const validEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || "").trim());
-const NO_EMAIL = "no-email";
-function fmtPhone(p) {
-  const d = digits(p);
-  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-  if (d.length === 11 && d[0] === "1") return `+1 (${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
-  return p || "";
-}
 const firstName = n => (n || "").trim().split(/\s+/)[0] || "";
 const reduceMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { return false; } };
 
@@ -654,8 +644,8 @@ function matches(d) {
   if (!inScope(d)) return false;
   if (S.q) {
     const q = S.q.toLowerCase().trim(), qd = digits(q);
-    const hit = (qd && (String(d.number).includes(qd) || digits(d.custPhone).includes(qd))) ||
-      (d.salesName || "").toLowerCase().includes(q) || (d.custName || "").toLowerCase().includes(q) || (d.custEmail || "").toLowerCase().includes(q);
+    const hit = (qd && String(d.number).includes(qd)) ||
+      (d.salesName || "").toLowerCase().includes(q) || (d.custName || "").toLowerCase().includes(q);
     if (!hit) return false;
   }
   return true;
@@ -828,7 +818,7 @@ function clockHTML(d) {
   const b = bucket(d), a = age(d);
   if (b === "done") { const dd = doneDay(d); return `<span class="clock is-done"><span>Done</span><small>${dd === 0 ? "Same day" : `Day ${dd}`}</small></span>`; }
   if (b === "hold") return `<span class="clock is-hold"><span>On hold</span><small>Day ${a} of ${WINDOW}</small></span>`;
-  if (b === "burned") return `<span class="clock is-burn"><span>Burned</span><small>${d.burnReason === NO_EMAIL ? "No email · " : ""}${fmtDate(d.burnedAt)}</small></span>`;
+  if (b === "burned") return `<span class="clock is-burn"><span>Burned</span><small>${fmtDate(d.burnedAt)}</small></span>`;
   if (b === "history") return "";
   const pct = Math.min(100, (a / WINDOW) * 100);
   return `<span class="clock sev-${sev(a)}"><span>${a === 0 ? "Today" : `Day ${a}`}</span><span class="meter"><i style="width:${Math.max(4, pct)}%"></i></span><small>${WINDOW - a} days left</small></span>`;
@@ -1002,9 +992,7 @@ function burn(g) {
   const byP = {}; scoped.forEach(d => { byP[d.salesName || "Unassigned"] = (byP[d.salesName || "Unassigned"] || 0) + 1; });
   const top = Object.entries(byP).sort((a, b) => b[1] - a[1]).slice(0, 3);
   const summary = scoped.length ? `<div class="card panel" style="margin-bottom:12px;display:flex;gap:18px;align-items:center;flex-wrap:wrap"><div style="display:flex;align-items:center;gap:12px"><span class="avatar" style="width:44px;height:44px;background:var(--burn-soft);color:var(--burn-ink)">${ic("flame")}</span><div><div class="kpi" style="padding:0"><div class="value"><span ${A("burnv", "n", scoped.length)}>${scoped.length}</span></div></div><small style="color:var(--fg-2)">burned this window</small></div></div><div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px">${top.map(([n, c]) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) 2fr 24px;gap:10px;align-items:center;font-size:13px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(n)}</span><span class="mini" style="width:100%;height:8px"><i class="anim-w" style="background:var(--c-burn)" ${A("bp-" + n, "w", +(c / top[0][1] * 100).toFixed(1))}></i></span><b style="text-align:right">${c}</b></div>`).join("")}</div></div>` : "";
-  const noEmail = [...g.pending, ...g.hold].filter(d => !validEmail(d.custEmail));
-  const right = S.manager && !S.readOnly && noEmail.length ? `<button class="btn btn-quiet" data-action="burn-no-email">${ic("flame")}Burn ${noEmail.length} with no email</button>` : "";
-  return head("Burn", sub, right) + summary + (g.burned.length > 6 ? `<div class="toolbar">${searchBox()}${peopleSelect("person")}</div>` : "") + (list.length ? `<ul class="list">${list.map(rowDeal).join("")}</ul>` : `<div class="card">${emptyState("flame", "No burned surveys", "Open a deal and choose Mark as burned when a survey is lost or comes back bad.")}</div>`);
+  return head("Burn", sub) + summary + (g.burned.length > 6 ? `<div class="toolbar">${searchBox()}${peopleSelect("person")}</div>` : "") + (list.length ? `<ul class="list">${list.map(rowDeal).join("")}</ul>` : `<div class="card">${emptyState("flame", "No burned surveys", "Open a deal and choose Mark as burned when a survey is lost or comes back bad.")}</div>`);
 }
 function history(g) {
   const sub = `Deals move here automatically after ${WINDOW} days, with their notes and final result.`;
@@ -1069,9 +1057,7 @@ function openAdd(kind = "deal") {
   openSheet(sheetHead("New deal", "Deal number is required. Customer details are optional.") + `
     <form id="addForm" novalidate>
       <div class="field"><label for="dealNo">Deal number</label><input class="input deal" id="dealNo" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="000000" aria-describedby="dealErr"><span class="err" id="dealErr" hidden></span></div>
-      <div class="two-col"><div class="field"><label for="custName">Customer name</label><input class="input" id="custName" maxlength="60" autocomplete="off" placeholder="Jane Rivera"></div>
-      <div class="field"><label for="custPhone">Customer phone</label><input class="input" id="custPhone" type="tel" inputmode="tel" maxlength="20" autocomplete="off" placeholder="(602) 555-0142"></div></div>
-      <div class="field"><label for="custEmail">Customer email</label><input class="input" id="custEmail" type="email" inputmode="email" maxlength="120" autocomplete="off" placeholder="jane@example.com"><span class="hint">Kia sends the survey by email. Imported deals without one go to Burned.</span></div>
+      <div class="field"><label for="custName">Customer name</label><input class="input" id="custName" maxlength="60" autocomplete="off" placeholder="Jane Rivera"></div>
       <div class="field"><label for="dealSales">Salesperson</label><select class="select" id="dealSales">${activePeople().map(p => `<option value="${p.id}" ${S.person === p.id ? "selected" : ""}>${esc(p.name)}${TEAMS.includes(p.team) ? ` · ${teamLabel(p.team)}` : ""}</option>`).join("")}</select></div>
       <div class="field"><span class="lab">Type</span><div class="seg full" role="group" id="kindSeg"><button type="button" data-k="deal">Deal · clock starts now</button><button type="button" data-k="inbound">Inbound · clock paused</button></div></div>
       <div class="sheet-actions"><button class="btn btn-primary btn-lg" type="submit" id="addSubmit">Add deal</button></div>
@@ -1081,7 +1067,6 @@ function openAdd(kind = "deal") {
     sh.querySelector("#kindSeg").onclick = e => { const b = e.target.closest("button"); if (b) setK(b.dataset.k); };
     const inp = $("#dealNo"), err = $("#dealErr");
     inp.addEventListener("input", () => { inp.value = digits(inp.value).slice(0, 6); err.hidden = true; });
-    const ph = $("#custPhone"); ph.addEventListener("blur", () => { if (digits(ph.value).length >= 10) ph.value = fmtPhone(ph.value); });
     setTimeout(() => inp.focus(), 60);
     $("#addForm").onsubmit = async e => {
       e.preventDefault(); e.stopPropagation();
@@ -1096,7 +1081,7 @@ function openAdd(kind = "deal") {
         const ex = await ref.get();
         if (ex.exists) { btn.disabled = false; return fail(`Deal ${n} is already in CSI.`); }
         const now = Date.now();
-        await ref.set({ number: n, kind: k, status: "pending", salesId: sid, salesName: p ? p.name : "", custName: $("#custName").value.trim(), custPhone: ph.value.trim() ? fmtPhone(ph.value.trim()) : "", custEmail: $("#custEmail").value.trim(), createdAt: now, activatedAt: k === "deal" ? now : null, completedAt: null, holdAt: null, burnedAt: null, notes: "", notesAt: null, updatedAt: now });
+        await ref.set({ number: n, kind: k, status: "pending", salesId: sid, salesName: p ? p.name : "", custName: $("#custName").value.trim(), createdAt: now, activatedAt: k === "deal" ? now : null, completedAt: null, holdAt: null, burnedAt: null, notes: "", notesAt: null, updatedAt: now });
         closeSheet(); toast(k === "deal" ? `Deal ${n} added. Day 0 of ${WINDOW}.` : `Inbound ${n} added.`);
       } catch (x) { btn.disabled = false; fail(errMsg(x)); }
     };
@@ -1110,10 +1095,10 @@ function openDeal(id, focusNotes) {
   const canEdit = !ro && (!isHist || S.manager);
   const status = { inbound: "Inbound", done: "Completed", hold: "On hold", burned: "Burned", pending: "Missing" }[b] || (d.status === "done" ? "Completed" : d.status === "burned" ? "Burned" : "Not completed");
   const facts = b === "inbound" ? [["Status", status], ["Added", fmtDate(d.createdAt)], ["Clock", "Paused"]]
-    : [["Status", status], ["Started", fmtDate(d.activatedAt)], isHist ? ["Closed", fmtDate(d.activatedAt + WINDOW * DAY)] : b === "done" ? ["Done on", fmtDate(d.completedAt)] : b === "burned" ? [d.burnReason === NO_EMAIL ? "Burned · no email" : "Burned", fmtDate(d.burnedAt)] : ["Day", `${a} of ${WINDOW}`]];
+    : [["Status", status], ["Started", fmtDate(d.activatedAt)], isHist ? ["Closed", fmtDate(d.activatedAt + WINDOW * DAY)] : b === "done" ? ["Done on", fmtDate(d.completedAt)] : b === "burned" ? ["Burned", fmtDate(d.burnedAt)] : ["Day", `${a} of ${WINDOW}`]];
   const canToggle = !ro && (b === "pending" || b === "done" || b === "hold");
   const people = activePeople();
-  const cust = d.custName || d.custPhone || d.custEmail ? `<div class="cust"><span class="avatar">${esc(initials(d.custName || "#"))}</span><span class="who2"><b>${esc(d.custName || "Customer")}</b>${d.custPhone ? `<span class="phone">${esc(fmtPhone(d.custPhone))}</span>` : ""}${d.custEmail ? `<span class="phone">${esc(d.custEmail)}</span>` : ""}</span>${d.custPhone ? `<button class="icon-btn" data-action="copy" data-text="${esc(fmtPhone(d.custPhone))}" aria-label="Copy phone number">${ic("copy")}</button>` : ""}</div>` : "";
+  const cust = d.custName ? `<div class="cust"><span class="avatar">${esc(initials(d.custName))}</span><span class="who2"><b>${esc(d.custName)}</b></span></div>` : "";
   const actions = [];
   if (!ro && b === "inbound") actions.push(`<button class="btn btn-primary btn-lg" data-action="activate" data-id="${d.id}">${ic("play")}Make active lead</button>`);
   if (!ro && (b === "pending" || b === "hold")) actions.push(`<div class="two">${b === "pending" ? `<button class="btn btn-quiet btn-lg" data-action="hold" data-id="${d.id}">${ic("hold")}Put on hold</button>` : `<button class="btn btn-quiet btn-lg" data-action="resume" data-id="${d.id}">${ic("play")}Take off hold</button>`}<button class="btn btn-quiet btn-lg" style="color:var(--burn-ink)" data-action="burn" data-id="${d.id}">${ic("flame")}Mark burned</button></div>`);
@@ -1127,8 +1112,7 @@ function openDeal(id, focusNotes) {
     <div class="facts">${facts.map(([l, v]) => `<div class="fact"><small>${l}</small><b>${esc(v)}</b></div>`).join("")}</div>
     ${canToggle ? `<button class="big-toggle ${d.status === "done" ? "on" : ""}" data-action="toggle" data-id="${d.id}" data-stay="1" aria-pressed="${d.status === "done"}"><span class="bubble check ${d.status === "done" ? "on" : ""}">${ic("check")}</span><span><b>Survey done</b><small>${d.status === "done" ? `Checked off ${fmtDateTime(d.completedAt)}` : "Tap when the customer finishes the survey"}</small></span></button>` : ""}
     ${ai}
-    ${canEdit ? `<div class="two-col"><div class="field"><label for="dName">Customer name</label><input class="input" id="dName" maxlength="60" value="${esc(d.custName)}" placeholder="Optional"></div><div class="field"><label for="dPhone">Customer phone</label><input class="input" id="dPhone" type="tel" inputmode="tel" maxlength="20" value="${esc(d.custPhone)}" placeholder="Optional"></div></div>
-    <div class="field"><label for="dEmail">Customer email</label><input class="input" id="dEmail" type="email" inputmode="email" maxlength="120" value="${esc(d.custEmail)}" placeholder="${b === "burned" && d.burnReason === NO_EMAIL ? "Add an email, then Restore to missing" : "Optional"}"></div>
+    ${canEdit ? `<div class="field"><label for="dName">Customer name</label><input class="input" id="dName" maxlength="60" value="${esc(d.custName)}" placeholder="Optional"></div>
     ${S.manager && !isHist ? `<div class="field"><label for="dSales">Salesperson</label><select class="select" id="dSales">${!people.some(p => p.id === d.salesId) ? `<option value="" selected>${esc(d.salesName || "Unassigned")}</option>` : ""}${people.map(p => `<option value="${p.id}" ${p.id === d.salesId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div>` : ""}` : ""}
     <div class="field"><label for="dNotes">Notes</label>${canEdit ? `<textarea class="textarea" id="dNotes" maxlength="4000" placeholder="Called twice, left voicemail. Customer said they'd do it this weekend.">${esc(d.notes)}</textarea>` : `<div class="input" style="min-height:80px;white-space:pre-wrap">${esc(d.notes) || '<span style="color:var(--fg-3)">No notes</span>'}</div>`}<span class="saved-at">${d.notesAt ? `Last saved ${fmtDateTime(d.notesAt)}` : ""}</span></div>
     <div class="sheet-actions">${canEdit ? `<button class="btn btn-primary btn-lg" id="saveDeal">Save</button>` : ""}${actions.join("")}</div>`, () => {
@@ -1139,10 +1123,8 @@ function openDeal(id, focusNotes) {
       const cur = S.deals.find(x => x.id === id); if (!cur) return closeSheet();
       const patch = {};
       if (ta && ta.value.trim() !== (cur.notes || "")) { patch.notes = ta.value.trim(); patch.notesAt = Date.now(); }
-      const nm = $("#dName"), pn = $("#dPhone"), em = $("#dEmail");
-      if (em && em.value.trim() !== (cur.custEmail || "")) patch.custEmail = em.value.trim();
+      const nm = $("#dName");
       if (nm && nm.value.trim() !== (cur.custName || "")) patch.custName = nm.value.trim();
-      if (pn) { const v = pn.value.trim() ? fmtPhone(pn.value.trim()) : ""; if (v !== (cur.custPhone || "")) patch.custPhone = v; }
       const sel = $("#dSales");
       if (sel && sel.value && sel.value !== cur.salesId) { const p = S.people.find(x => x.id === sel.value); patch.salesId = sel.value; patch.salesName = p ? p.name : ""; }
       if (!Object.keys(patch).length) return closeSheet();
@@ -1325,15 +1307,6 @@ document.addEventListener("click", async e => {
   if (a === "hold") { closeSheet(); return write(id, { status: "hold", holdAt: Date.now() }, "Moved to Hold"); }
   if (a === "resume") { closeSheet(); return write(id, { status: "pending", holdAt: null }, "Back in Deals"); }
   if (a === "burn") { const d = S.deals.find(x => x.id === id); closeSheet(); return write(id, { status: "burned", burnedAt: Date.now(), holdAt: null, burnReason: null }, `Deal ${d ? d.number : ""} moved to Burn`); }
-  if (a === "burn-no-email" && S.manager) {
-    const g = groups(), list = [...g.pending, ...g.hold].filter(d => !validEmail(d.custEmail));
-    if (!list.length) return toast("Every active deal has an email.");
-    return confirmSheet(`Burn ${plural(list.length, "deal")} with no email?`, `These active deals have no valid customer email, so Kia can't send the survey: ${list.slice(0, 12).map(d => d.number).join(", ")}${list.length > 12 ? ` and ${list.length - 12} more` : ""}. They move to Burn and count against the completion rate. Add an email and choose Restore to missing to undo one.`, `Burn ${plural(list.length, "deal")}`, async () => {
-      const now = Date.now();
-      for (let i = 0; i < list.length; i += 10) await Promise.all(list.slice(i, i + 10).map(d => S.db.doc("deals/" + d.id).update({ status: "burned", burnedAt: now, holdAt: null, burnReason: NO_EMAIL, updatedAt: now })));
-      toast(`${plural(list.length, "deal")} moved to Burn`);
-    });
-  }
   if (a === "unburn") { closeSheet(); return write(id, { status: "pending", burnedAt: null, burnReason: null }, "Restored to Deals"); }
   if (a === "delete" && S.manager) {
     const d = S.deals.find(x => x.id === id);
@@ -1468,7 +1441,8 @@ function openOwnPwSheet() {
   });
 }
 function exportBackup() {
-  const strip = o => { const { id, ...rest } = o; return rest; };
+  // Customer phone and email stay in Firestore but are never put in the file.
+  const strip = o => { const { id, custPhone, custEmail, ...rest } = o; return rest; };
   const data = { app: "CSI", version: 1, exportedAt: new Date().toISOString(), deals: S.deals.map(d => ({ id: d.id, ...strip(d) })), people: S.people.map(p => ({ id: p.id, ...strip(p) })) };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -1483,9 +1457,9 @@ document.addEventListener("change", async e => {
   try { data = JSON.parse(await e.target.files[0].text()); } catch (x) { return toast("That file isn't a CSI backup.", true); }
   if (!data || data.app !== "CSI" || !Array.isArray(data.deals)) return toast("That file isn't a CSI backup.", true);
   const deals = data.deals.filter(d => /^\d{6}$/.test(d.number || "")), people = (data.people || []).filter(p => p.name);
-  confirmSheet(`Restore ${plural(deals.length, "deal")}?`, `This adds ${plural(deals.length, "deal")} and ${plural(people.length, "salesperson", "salespeople")} from the backup. Deals with the same number are replaced. Nothing else is deleted.`, "Restore", async () => {
+  confirmSheet(`Restore ${plural(deals.length, "deal")}?`, `This adds ${plural(deals.length, "deal")} and ${plural(people.length, "salesperson", "salespeople")} from the backup. Deals with the same number are updated with the backup's values; anything the backup doesn't have is kept. Nothing is deleted.`, "Restore", async () => {
     const writes = [...people.map(p => ["data/team/people/" + p.id, p]), ...deals.map(d => ["deals/" + d.number, d])];
-    for (let i = 0; i < writes.length; i += 10) await Promise.all(writes.slice(i, i + 10).map(([path, v]) => { const { id, ...rest } = v; return S.db.doc(path).set({ ...rest, updatedAt: Date.now() }); }));
+    for (let i = 0; i < writes.length; i += 10) await Promise.all(writes.slice(i, i + 10).map(([path, v]) => { const { id, ...rest } = v; delete rest.custPhone; delete rest.custEmail; return S.db.doc(path).set({ ...rest, updatedAt: Date.now() }, { merge: true }); }));
     toast("Backup restored");
   });
 });
@@ -1510,8 +1484,6 @@ const IMP_FIELDS = [
   { k: "custName", label: "Customer name", names: ["customer", "customer name", "cust name", "cust", "buyer", "buyer name", "client", "client name", "name", "full name", "customer full name"] },
   { k: "custFirst", label: "Customer first name", names: ["first name", "first", "customer first name", "cust first name", "cust first", "fname", "buyer first name"] },
   { k: "custLast", label: "Customer last name", names: ["last name", "last", "customer last name", "cust last name", "cust last", "lname", "surname", "buyer last name"] },
-  { k: "custPhone", label: "Customer phone", names: ["phone", "phone number", "phone no", "customer phone", "cust phone", "cell", "cell phone", "mobile", "mobile phone", "telephone", "tel", "home phone", "contact number"] },
-  { k: "custEmail", label: "Customer email", names: ["email", "e mail", "email address", "e mail address", "customer email", "cust email", "customer e mail", "buyer email", "client email", "customer email address"] },
   { k: "salesName", label: "Salesperson", names: ["salesperson", "sales person", "salesman", "saleswoman", "sales rep", "sales representative", "rep", "sales", "sales associate", "associate", "consultant", "sales consultant", "sold by", "seller", "employee", "advisor", "service advisor", "writer", "salesperson name"] },
   { k: "team", label: "Team", names: ["team", "sales team", "department", "dept", "group", "team name"] },
   { k: "date", label: "Sale date", names: ["date", "sale date", "sold date", "sold", "date sold", "deal date", "delivery date", "delivered", "delivered date", "purchase date", "contract date", "start date", "activated", "activated date", "created", "created date"] },
@@ -1521,8 +1493,8 @@ const IMP_FIELDS = [
   { k: "notes", label: "Notes", names: ["notes", "note", "comments", "comment", "remarks"] }
 ];
 const normName = s => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-// Columns like "Sales Amount" or "Customer Email" must never fall back to a near match.
-const NO_GUESS = ["amount", "price", "total", "gross", "profit", "cost", "payment", "value", "commission", "qty", "count", "id", "address", "city", "state", "zip", "vin", "model", "make", "year", "vehicle", "stock", "mileage", "miles", "color", "trade", "rate", "score"];
+// Columns like "Sales Amount" or "Customer Email" must never fall back to a near match. Phone and email columns are never imported.
+const NO_GUESS = ["phone", "cell", "mobile", "tel", "telephone", "fax", "email", "mail", "contact", "amount", "price", "total", "gross", "profit", "cost", "payment", "value", "commission", "qty", "count", "id", "address", "city", "state", "zip", "vin", "model", "make", "year", "vehicle", "stock", "mileage", "miles", "color", "trade", "rate", "score"];
 function guessField(header, taken) {
   const h = normName(header);
   if (!h || h.split(" ").some(w => NO_GUESS.includes(w))) return "";
@@ -1537,7 +1509,7 @@ function guessField(header, taken) {
 }
 function guessMap(headers) {
   const taken = new Set(), map = headers.map(() => "");
-  // Exact names claim first so "Customer Phone" doesn't lose "phone" to a looser match.
+  // Exact names claim first so "Customer Name" doesn't lose "name" to a looser match.
   headers.forEach((h, i) => { const n = normName(h); const f = IMP_FIELDS.find(f => !taken.has(f.k) && f.names.includes(n)); if (f) { map[i] = f.k; taken.add(f.k); } });
   headers.forEach((h, i) => { if (!map[i]) { const k = guessField(h, taken); if (k) { map[i] = k; taken.add(k); } } });
   return map;
@@ -1680,9 +1652,6 @@ function analyzeImport(grid, headerRow, map, now) {
     // customer
     const full = txt(row, "custName"), first = txt(row, "custFirst"), last = txt(row, "custLast");
     x.custName = full || [first, last].filter(Boolean).join(" ");
-    const ph = txt(row, "custPhone");
-    x.custPhone = ph ? fmtPhone(ph) : "";
-    x.custEmail = txt(row, "custEmail");
     x.notes = has("notes") ? cell(row, "notes").text.replace(/^\s+|\s+$/g, "") : "";
     // salesperson + team
     x.salesName = txt(row, "salesName").replace(/\s+/g, " ");
@@ -1734,12 +1703,6 @@ function analyzeImport(grid, headerRow, map, now) {
         x.completedAt = cd.t;
       } else { x.completedAt = now; if (has("completedAt")) x.warns.push("No survey date. Checked off as of import."); }
     } else if (cd && x.kind === "deal") x.warns.push(`Survey date ignored because status is ${x.status === "pending" ? "missing" : x.status}`);
-    // Missing-email rule: an active deal whose customer has no usable email is burned at import.
-    x.burnReason = null;
-    if (has("custEmail") && x.kind === "deal" && (x.status === "pending" || x.status === "hold") && !validEmail(x.custEmail)) {
-      x.warns.push(x.custEmail ? `Email "${x.custEmail}" isn't valid. Goes to Burned.` : "No email. Goes to Burned.");
-      x.status = "burned"; x.burnReason = NO_EMAIL;
-    }
     x.state = x.errors.length ? "error" : x.skip ? "skip" : x.warns.length ? "warn" : "ok";
     rows.push(x);
   }
@@ -1777,8 +1740,8 @@ async function runImport(res, onProgress) {
       const ref = S.db.doc("deals/" + x.number);
       if (ref.get) { const ex = await ref.get(); if (ex.exists) { skipped++; return; } }
       const sid = x.person ? x.person.id : x.salesName ? ids.get(personKey(x.salesName)) : "";
-      await ref.set({ number: x.number, kind: x.kind, status: x.status, salesId: sid || "", salesName: x.salesName || "", custName: x.custName, custPhone: x.custPhone, custEmail: x.custEmail,
-        createdAt: x.createdAt, activatedAt: x.activatedAt, completedAt: x.completedAt, holdAt: x.status === "hold" ? now : null, burnedAt: x.status === "burned" ? now : null, burnReason: x.burnReason,
+      await ref.set({ number: x.number, kind: x.kind, status: x.status, salesId: sid || "", salesName: x.salesName || "", custName: x.custName,
+        createdAt: x.createdAt, activatedAt: x.activatedAt, completedAt: x.completedAt, holdAt: x.status === "hold" ? now : null, burnedAt: x.status === "burned" ? now : null,
         notes: x.notes, notesAt: x.notes ? now : null, updatedAt: now });
       done++;
     }));
@@ -1842,15 +1805,14 @@ function openImport() {
     const ok = cnt("ok"), warn = cnt("warn"), skip = cnt("skip"), errs = cnt("error");
     const sample = i => { for (let r = st.headerRow + 1; r < st.grid.length; r++) { const t = st.grid[r][i] && st.grid[r][i].text.trim(); if (t) return t; } return ""; };
     const unmapped = headers.map((c, i) => !st.map[i] && c.text.trim() ? c.text.trim() : "").filter(Boolean);
-    const burnN = res.rows.filter(x => x.burnReason && (x.state === "ok" || x.state === "warn")).length;
     const missing = ["date", "salesName"].filter(k => !st.map.includes(k)).map(k => IMP_FIELDS.find(f => f.k === k).label);
     const mapRows = headers.map((c, i) => `<tr><td class="src">${esc(c.text.trim() || `Column ${i + 1}`)}</td><td class="samp">${esc(sample(i)) || "<i>empty</i>"}</td><td><select class="select" data-col="${i}" aria-label="Field for ${esc(c.text)}"><option value="">Don't import</option>${IMP_FIELDS.map(f => `<option value="${f.k}" ${st.map[i] === f.k ? "selected" : ""}>${f.label}${f.req ? " *" : ""}</option>`).join("")}</select></td></tr>`).join("");
     const pill = { ok: `<span class="pill ok">Ready</span>`, warn: `<span class="pill warnp">Check</span>`, skip: `<span class="pill neutral">Skip</span>`, error: `<span class="pill bad">Error</span>` };
     const shown = res.rows.filter(x => st.show === "all" || x.state !== "ok");
     const LIM = 500;
     const when = x => x.kind === "inbound" ? "Inbound" : fmtDay(x.activatedAt);
-    const surv = x => x.status === "done" ? `Done ${fmtDay(x.completedAt)}` : x.status === "pending" ? "Missing" : x.status === "hold" ? "Hold" : x.burnReason ? "Burned · no email" : "Burned";
-    const prow = x => `<tr class="${x.state}"><td class="ln">${x.line}</td><td>${pill[x.state]}</td><td class="mono">${esc(x.number) || "—"}</td><td>${esc(x.custName) || "—"}${x.custEmail ? `<br><small>${esc(x.custEmail)}</small>` : ""}</td><td>${esc(x.salesName) || "—"}${x.team ? ` <span class="tchip ${x.team}">${x.team}</span>` : ""}</td><td>${when(x)}</td><td>${surv(x)}</td><td class="msg">${[...x.errors.map(m => `<span class="e">${esc(m)}</span>`), x.skip ? esc(x.skip) : "", ...x.warns.map(esc)].filter(Boolean).join("<br>")}</td></tr>`;
+    const surv = x => x.status === "done" ? `Done ${fmtDay(x.completedAt)}` : x.status === "pending" ? "Missing" : x.status === "hold" ? "Hold" : "Burned";
+    const prow = x => `<tr class="${x.state}"><td class="ln">${x.line}</td><td>${pill[x.state]}</td><td class="mono">${esc(x.number) || "—"}</td><td>${esc(x.custName) || "—"}</td><td>${esc(x.salesName) || "—"}${x.team ? ` <span class="tchip ${x.team}">${x.team}</span>` : ""}</td><td>${when(x)}</td><td>${surv(x)}</td><td class="msg">${[...x.errors.map(m => `<span class="e">${esc(m)}</span>`), x.skip ? esc(x.skip) : "", ...x.warns.map(esc)].filter(Boolean).join("<br>")}</td></tr>`;
     const sheets = st.wb && st.wb.SheetNames.length > 1 ? `<div class="field"><label for="impSheet">Sheet</label><select class="select" id="impSheet">${st.wb.SheetNames.map(n => `<option ${n === st.sheet ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>` : "";
     const people = [...res.newPeople.map(p => `Add <b>${esc(p.name)}</b> to ${p.team ? teamLabel(p.team) : "no team yet"}`), ...res.moves.map(m => `Move <b>${esc(m.person.name)}</b> from ${TEAMS.includes(m.person.team) ? teamLabel(m.person.team) : "no team"} to ${teamLabel(m.team)}`)];
     const total = ok + warn;
@@ -1860,9 +1822,8 @@ function openImport() {
       <h3 class="imp-h">Columns</h3>
       <div class="imp-scroll"><table class="imp-table map"><thead><tr><th>In your file</th><th>First value</th><th>Goes to</th></tr></thead><tbody>${mapRows}</tbody></table></div>
       ${!reqOk ? `<div class="banner">${ic("alert")}<div>Pick which column holds the <b>deal number</b>. It's required.</div></div>` : ""}
-      ${reqOk && !st.map.includes("custEmail") ? `<div class="banner">${ic("alert")}<div>No <b>email</b> column found, so missing emails can't be checked and nothing is burned for it. Pick the email column above if the sheet has one.</div></div>` : ""}
       ${reqOk && (missing.length || unmapped.length) ? `<div class="banner">${ic("alert")}<div>${missing.length ? `No ${missing.join(" or ").toLowerCase()} column${missing.length > 1 ? "s" : ""}. ${!st.map.includes("date") ? "Deals will start their survey clock at import. " : ""}${!st.map.includes("salesName") ? "Deals will be unassigned. " : ""}` : ""}${unmapped.length ? `Not imported: ${unmapped.map(esc).join(", ")}.` : ""}</div></div>` : ""}
-      ${reqOk ? `<div class="imp-sum"><span class="pill ok">${ok} ready</span><span class="pill warnp">${warn} to check</span><span class="pill neutral">${skip} already in CSI</span><span class="pill bad">${errs} with errors</span>${burnN ? `<span class="pill burn">${burnN} to Burned · no email</span>` : ""}</div>
+      ${reqOk ? `<div class="imp-sum"><span class="pill ok">${ok} ready</span><span class="pill warnp">${warn} to check</span><span class="pill neutral">${skip} already in CSI</span><span class="pill bad">${errs} with errors</span></div>
       ${people.length ? `<div class="imp-people"><b>Salespeople</b><ul>${people.map(p => `<li>${p}</li>`).join("")}</ul></div>` : ""}
       <div class="imp-bar"><h3 class="imp-h" style="margin:0">Rows</h3><span class="seg">${[["problems", "Needs a look"], ["all", "All rows"]].map(([k, l]) => `<button data-imp-show="${k}" aria-pressed="${st.show === k}">${l}</button>`).join("")}</span></div>
       ${shown.length ? `<div class="imp-scroll tall"><table class="imp-table"><thead><tr><th>Row</th><th></th><th>Deal</th><th>Customer</th><th>Salesperson</th><th>Sold</th><th>Survey</th><th>Notes</th></tr></thead><tbody>${shown.slice(0, LIM).map(prow).join("")}</tbody></table></div>${shown.length > LIM ? `<p class="hint">Showing the first ${LIM} of ${shown.length}.</p>` : ""}` : `<p class="hint">${res.rows.length ? "Every row is ready." : "No rows under the header."}</p>`}
@@ -1905,7 +1866,8 @@ render();
 function subscribe(db, onErr) {
   return [
     db.collection("deals").onSnapshot(snap => {
-      S.deals = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => /^\d{6}$/.test(d.number || ""));
+      // Customer phone and email may still be stored on older deals; the app never reads them.
+      S.deals = snap.docs.map(d => { const { custPhone, custEmail, ...v } = d.data(); return { id: d.id, ...v }; }).filter(d => /^\d{6}$/.test(d.number || ""));
       S.ready.deals = true; S.conn = "live"; render();
       const t = $("#sheetTitle"); if (!$("#scrim").hidden && t && t.classList.contains("mono") && !S.deals.some(d => d.number === t.textContent)) closeSheet();
     }, onErr),
